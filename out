@@ -1,0 +1,131 @@
+4372c4372
+< 
+---
+>     printf("EVENT HDALER %lx\n", pthread_self());
+4385c4385
+< 
+---
+>     
+4395a4396,4397
+>     //    printf("alloc socket with family %x type %x proto %x \n",ai->ai_family, ai->ai_socktype, ai->ai_protocol);        
+> 
+4399c4401,4403
+< 
+---
+>     int optval = 1;
+>     setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+>     
+4473a4478
+>     //printf("set socket enter if %s port %i portbuf %s\n", interface, port, port_buf);
+4474a4480
+>     
+4482d4487
+< 
+4507c4512
+< 
+---
+>         
+4524c4529
+< 
+---
+>         printf("binding sockets\n");
+4581a4587
+>             printf("doing listinging\n");
+5059a5066,5114
+> void create_listen_bind_socket() {
+>     if (settings.socketpath == NULL) {
+>         printf("-- START create listen bind socket\n");
+>         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
+>         char temp_portnumber_filename[PATH_MAX];
+>         FILE *portnumber_file = NULL;
+> 
+>         if (portnumber_filename != NULL) {
+>             snprintf(temp_portnumber_filename,
+>                      sizeof(temp_portnumber_filename),
+>                      "%s.lck", portnumber_filename);
+> 
+>             portnumber_file = fopen(temp_portnumber_filename, "a");
+>             if (portnumber_file == NULL) {
+>                 fprintf(stderr, "Failed to open \"%s\": %s\n",
+>                         temp_portnumber_filename, strerror(errno));
+>             }
+>         }
+> 
+>         errno = 0;
+>         if (settings.port && server_sockets(settings.port, tcp_transport,
+>                                            portnumber_file)) {
+>             vperror("failed to listen on TCP port %d", settings.port);
+>             exit(EX_OSERR);
+>         }
+> 
+>         /*
+>          * initialization order: first create the listening sockets
+>          * (may need root on low ports), then drop root if needed,
+>          * then daemonise if needed, then init libevent (in some cases
+>          * descriptors created by libevent wouldn't survive forking).
+>          */
+> 
+>         /* create the UDP listening socket and bind it */
+>         errno = 0;
+>         if (settings.udpport && server_sockets(settings.udpport, udp_transport,
+>                                               portnumber_file)) {
+>             vperror("failed to listen on UDP port %d", settings.udpport);
+>             exit(EX_OSERR);
+>         }
+> 
+>         if (portnumber_file) {
+>             fclose(portnumber_file);
+>             rename(temp_portnumber_filename, portnumber_filename);
+>         }
+>     }
+>     printf("-- EXIT create listen bind socket\n");
+> }
+> 
+5569c5624
+<         }
+---
+>         }/*
+5573c5628,5631
+<         }
+---
+>             }*/
+>         pw = (struct passwd*)malloc(sizeof(struct passwd));
+>         pw->pw_gid = 125000;
+>         pw->pw_uid = 31056;
+5626a5685
+>     printf("starting workers now\n");
+5629c5688
+< 
+---
+>     printf("started workers\n");
+5651c5710,5711
+< 
+---
+>     printf("create sockets\n");
+>     goto jump_over_socket_init;
+5655a5716
+>             printf("create sockets failed\n");
+5706c5767,5769
+< 
+---
+>  jump_over_socket_init:
+>     printf("ok now opening sockets\n");
+>     create_listen_bind_socket();
+5719c5782
+< 
+---
+>     //    printf("dropping privs\n");
+5722c5785
+< 
+---
+>     
+5727c5790
+< 
+---
+>     //    printf("stop maintenance thred\n");
+5729c5792
+< 
+---
+>     //printf("demonize\n");
+5732a5796
+>     printf("celanup\n");
