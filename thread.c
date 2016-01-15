@@ -71,6 +71,7 @@ static LIBEVENT_DISPATCHER_THREAD dispatcher_thread;
  */
 static LIBEVENT_THREAD *threads;
 
+__thread int my_tid;
 /*
  * Number of worker threads that have finished setting themselves up.
  */
@@ -369,13 +370,16 @@ static void setup_thread(LIBEVENT_THREAD *me) {
  */
 static void *worker_libevent(void *arg) {
     LIBEVENT_THREAD *me = arg;
-
+    my_tid = me->thread_id;
+    //printf("--------INIT THREAD new my tid %x self %lx thread obj %p\n", my_tid, (long)pthread_self(), (void*)me);
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
      */
 
-    register_thread_initialized();
+    create_listen_bind_socket(me);
 
+    register_thread_initialized();
+    
     event_base_loop(me->base, 0);
     return NULL;
 }
@@ -444,7 +448,8 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return ;
     }
 
-    int tid = (last_thread + 1) % settings.num_threads;
+    //    int tid = (last_thread + 1) % settings.num_threads;
+    int tid = my_tid;
 
     LIBEVENT_THREAD *thread = threads + tid;
 
@@ -469,6 +474,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
  * Returns true if this is the thread that listens for new TCP connections.
  */
 int is_listen_thread() {
+    return true;
     return pthread_self() == dispatcher_thread.thread_id;
 }
 
@@ -775,7 +781,7 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
 
     dispatcher_thread.base = main_base;
     dispatcher_thread.thread_id = pthread_self();
-
+    
     for (i = 0; i < nthreads; i++) {
         int fds[2];
         if (pipe(fds)) {
@@ -785,12 +791,11 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
 
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
-
+        threads[i].thread_id = i;
         setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats.reserved_fds += 5;
     }
-
     /* Create threads after we've done all the libevent setup. */
     for (i = 0; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i]);

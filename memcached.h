@@ -599,6 +599,8 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
 enum store_item_type store_item(item *item, int comm, conn *c);
+void create_listen_bind_socket(LIBEVENT_THREAD *me);
+
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);
@@ -613,3 +615,5 @@ extern void drop_privileges(void);
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
+
+

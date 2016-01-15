@@ -4052,6 +4052,7 @@ static void drive_machine(conn *c) {
 
         switch(c->state) {
         case conn_listening:
+            //            printf("CONN LIstening %lx con %p\n", (long)pthread_self(), (void*)c);
             addrlen = sizeof(addr);
 #ifdef HAVE_ACCEPT4
             if (use_accept4) {
@@ -4397,6 +4398,9 @@ static int new_socket(struct addrinfo *ai) {
         return -1;
     }
 
+    int optval = 1;
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval));
+
     if ((flags = fcntl(sfd, F_GETFL, 0)) < 0 ||
         fcntl(sfd, F_SETFL, flags | O_NONBLOCK) < 0) {
         perror("setting O_NONBLOCK");
@@ -4453,7 +4457,8 @@ static void maximize_sndbuf(const int sfd) {
 static int server_socket(const char *interface,
                          int port,
                          enum network_transport transport,
-                         FILE *portnumber_file) {
+                         FILE *portnumber_file,
+                         LIBEVENT_THREAD *me) {
     int sfd;
     struct linger ling = {0, 0};
     struct addrinfo *ai;
@@ -4579,10 +4584,12 @@ static int server_socket(const char *interface,
                                   UDP_READ_BUFFER_SIZE, transport);
             }
         } else {
+            //            printf("create listening connection %lx %x\n", (long)pthread_self(), sfd);
             if (!(listen_conn_add = conn_new(sfd, conn_listening,
                                              EV_READ | EV_PERSIST, 1,
-                                             transport, main_base))) {
+                                             transport, me->base))) {
                 fprintf(stderr, "failed to create listening connection\n");
+                printf("failed to create listening connection %lx\n", (long)pthread_self());
                 exit(EXIT_FAILURE);
             }
             listen_conn_add->next = listen_conn;
@@ -4597,9 +4604,9 @@ static int server_socket(const char *interface,
 }
 
 static int server_sockets(int port, enum network_transport transport,
-                          FILE *portnumber_file) {
+                          FILE *portnumber_file, LIBEVENT_THREAD *me) {
     if (settings.inter == NULL) {
-        return server_socket(settings.inter, port, transport, portnumber_file);
+        return server_socket(settings.inter, port, transport, portnumber_file, me);
     } else {
         // tokenize them and bind to each one of them..
         char *b;
@@ -4626,7 +4633,7 @@ static int server_sockets(int port, enum network_transport transport,
             if (strcmp(p, "*") == 0) {
                 p = NULL;
             }
-            ret |= server_socket(p, the_port, transport, portnumber_file);
+            ret |= server_socket(p, the_port, transport, portnumber_file, me);
         }
         free(list);
         return ret;
@@ -4710,6 +4717,7 @@ static int server_socket_unix(const char *path, int access_mask) {
 
     return 0;
 }
+
 
 /*
  * We keep the current time of day in a global variable that's updated by a
@@ -5657,9 +5665,10 @@ int main (int argc, char **argv) {
             exit(EX_OSERR);
         }
     }
+    //    create_listen_bind_socket();
 
     /* create the listening socket, bind it, and init */
-    if (settings.socketpath == NULL) {
+    /*    if (settings.socketpath == NULL) {
         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
         char temp_portnumber_filename[PATH_MAX];
         FILE *portnumber_file = NULL;
@@ -5682,7 +5691,7 @@ int main (int argc, char **argv) {
             vperror("failed to listen on TCP port %d", settings.port);
             exit(EX_OSERR);
         }
-
+    */
         /*
          * initialization order: first create the listening sockets
          * (may need root on low ports), then drop root if needed,
@@ -5691,7 +5700,7 @@ int main (int argc, char **argv) {
          */
 
         /* create the UDP listening socket and bind it */
-        errno = 0;
+        /*    errno = 0;
         if (settings.udpport && server_sockets(settings.udpport, udp_transport,
                                               portnumber_file)) {
             vperror("failed to listen on UDP port %d", settings.udpport);
@@ -5702,7 +5711,7 @@ int main (int argc, char **argv) {
             fclose(portnumber_file);
             rename(temp_portnumber_filename, portnumber_filename);
         }
-    }
+        }*/
 
     /* Give the sockets a moment to open. I know this is dumb, but the error
      * is only an advisory.
@@ -5740,3 +5749,52 @@ int main (int argc, char **argv) {
 
     return retval;
 }
+
+
+void create_listen_bind_socket(LIBEVENT_THREAD *me) {
+     if (settings.socketpath == NULL) {
+
+         const char *portnumber_filename = getenv("MEMCACHED_PORT_FILENAME");
+         char temp_portnumber_filename[PATH_MAX];
+         FILE *portnumber_file = NULL;
+ 
+         if (portnumber_filename != NULL) {
+             snprintf(temp_portnumber_filename,
+                      sizeof(temp_portnumber_filename),
+                      "%s.lck", portnumber_filename);
+ 
+             portnumber_file = fopen(temp_portnumber_filename, "a");
+             if (portnumber_file == NULL) {
+                 fprintf(stderr, "Failed to open \"%s\": %s\n",
+                         temp_portnumber_filename, strerror(errno));
+             }
+         }
+ 
+         errno = 0;
+         if (settings.port && server_sockets(settings.port, tcp_transport,
+                                             portnumber_file, me)) {
+             vperror("failed to listen on TCP port %d", settings.port);
+             exit(EX_OSERR);
+         }
+ 
+         /*
+          * initialization order: first create the listening sockets
+          * (may need root on low ports), then drop root if needed,
+          * then daemonise if needed, then init libevent (in some cases
+          * descriptors created by libevent wouldn't survive forking).
+          */
+ 
+         /* create the UDP listening socket and bind it */
+         errno = 0;
+         if (settings.udpport && server_sockets(settings.udpport, udp_transport,
+                                                portnumber_file, me)) {
+             vperror("failed to listen on UDP port %d", settings.udpport);
+             exit(EX_OSERR);
+         }
+ 
+         if (portnumber_file) {
+             fclose(portnumber_file);
+             rename(temp_portnumber_filename, portnumber_filename);
+         }
+     }
+ }
