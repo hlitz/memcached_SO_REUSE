@@ -80,7 +80,8 @@ static pthread_mutex_t init_lock;
 static pthread_cond_t init_cond;
 
 
-static void thread_libevent_process(int fd, short which, void *arg);
+//static void thread_libevent_process(int fd, short which, void *arg);
+static void thread_process(char cmd, short which, LIBEVENT_THREAD *me);
 
 unsigned short refcount_incr(unsigned short *refcount) {
 #ifdef HAVE_GCC_ATOMICS
@@ -160,7 +161,7 @@ static void register_thread_initialized(void) {
 void pause_threads(enum pause_thread_types type) {
     char buf[1];
     int i;
-
+    printf("OOpause thread\n");
     buf[0] = 0;
     switch (type) {
         case PAUSE_ALL_THREADS:
@@ -330,12 +331,15 @@ void accept_new_conns(const bool do_accept) {
  */
 static void setup_thread(LIBEVENT_THREAD *me) {
     me->base = event_init();
+    
     if (! me->base) {
         fprintf(stderr, "Can't allocate event base\n");
         exit(1);
     }
 
     /* Listen for notifications from other threads */
+
+    /*
     event_set(&me->notify_event, me->notify_receive_fd,
               EV_READ | EV_PERSIST, thread_libevent_process, me);
     event_base_set(me->base, &me->notify_event);
@@ -343,7 +347,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     if (event_add(&me->notify_event, 0) == -1) {
         fprintf(stderr, "Can't monitor libevent notify pipe\n");
         exit(1);
-    }
+        }*/
 
     me->new_conn_queue = malloc(sizeof(struct conn_queue));
     if (me->new_conn_queue == NULL) {
@@ -370,8 +374,10 @@ static void setup_thread(LIBEVENT_THREAD *me) {
  */
 static void *worker_libevent(void *arg) {
     LIBEVENT_THREAD *me = arg;
+    setup_thread(me);
+
     my_tid = me->thread_id;
-    //printf("--------INIT THREAD new my tid %x self %lx thread obj %p\n", my_tid, (long)pthread_self(), (void*)me);
+    printf("--------INIT THREAD new my tid %x self %lx thread obj %p\n", my_tid, (long)pthread_self(), (void*)me);
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
      */
@@ -389,6 +395,7 @@ static void *worker_libevent(void *arg) {
  * Processes an incoming "handle a new connection" item. This is called when
  * input arrives on the libevent wakeup pipe.
  */
+/*
 static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     CQ_ITEM *item;
@@ -422,12 +429,60 @@ static void thread_libevent_process(int fd, short which, void *arg) {
         cqi_free(item);
     }
         break;
+    // we were told to pause and report in 
+    case 'p':
+    register_thread_initialized();
+        break;
+    }
+}
+*/
+/*
+ * thread_process - just like thread_libevent_process, but without event
+ * semantics, called by the target thread itself.
+ */
+static void thread_process(char cmd, short which, LIBEVENT_THREAD *me) 
+{
+                           //void *arg) {
+                           //LIBEVENT_THREAD *me = arg;
+    CQ_ITEM *item;
+    //    char buf[1];
+    /*
+    if (read(fd, buf, 1) != 1)
+        if (settings.verbose > 0)
+            fprintf(stderr, "Can't read from libevent pipe\n");
+
+            switch (buf[0]) {*/
+    switch (cmd) {
+    case 'c':
+    item = cq_pop(me->new_conn_queue);
+
+    if (NULL != item) {
+        conn *c = conn_new(item->sfd, item->init_state, item->event_flags,
+                           item->read_buffer_size, item->transport, me->base);
+        if (c == NULL) {
+            if (IS_UDP(item->transport)) {
+                fprintf(stderr, "Can't listen for events on UDP socket\n");
+                exit(1);
+            } else {
+                if (settings.verbose > 0) {
+                    fprintf(stderr, "Can't listen for events on fd %d\n",
+                        item->sfd);
+                }
+                close(item->sfd);
+            }
+        } else {
+            c->thread = me;
+        }
+        cqi_free(item);
+    }
+        break;
     /* we were told to pause and report in */
     case 'p':
     register_thread_initialized();
         break;
     }
 }
+
 
 /* Which thread we assigned a connection to most recently. */
 static int last_thread = -1;
@@ -440,7 +495,7 @@ static int last_thread = -1;
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
-    char buf[1];
+    //    char buf[1];
     if (item == NULL) {
         close(sfd);
         /* given that malloc failed this may also fail, but let's try */
@@ -454,7 +509,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     LIBEVENT_THREAD *thread = threads + tid;
 
     last_thread = tid;
-
+    printf("dispatch conn new fd %d\n", sfd);
     item->sfd = sfd;
     item->init_state = init_state;
     item->event_flags = event_flags;
@@ -464,10 +519,14 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     cq_push(thread->new_conn_queue, item);
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
+
+    //Don't use the event notify pipe, but just do the connection yourself
+    thread_process('c', 0, thread);
+    /*
     buf[0] = 'c';
     if (write(thread->notify_send_fd, buf, 1) != 1) {
         perror("Writing to thread notify pipe");
-    }
+        }*/
 }
 
 /*
@@ -792,7 +851,7 @@ void memcached_thread_init(int nthreads, struct event_base *main_base) {
         threads[i].notify_receive_fd = fds[0];
         threads[i].notify_send_fd = fds[1];
         threads[i].thread_id = i;
-        setup_thread(&threads[i]);
+        //setup_thread(&threads[i]);
         /* Reserve three fds for the libevent base, and two for the pipe */
         stats.reserved_fds += 5;
     }

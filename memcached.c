@@ -310,21 +310,24 @@ extern pthread_mutex_t conn_lock;
  */
 static void conn_init(void) {
     /* We're unlikely to see an FD much higher than maxconns. */
-    int next_fd = dup(1);
-    int headroom = 10;      /* account for extra unexpected open FDs */
     struct rlimit rl;
-
-    max_fds = settings.maxconns + headroom + next_fd;
 
     /* But if possible, get the actual highest FD we can possibly ever see. */
     if (getrlimit(RLIMIT_NOFILE, &rl) == 0) {
         max_fds = rl.rlim_max;
     } else {
+        int headroom = 10;      /* account for extra unexpected open FDs */
+        int next_fd = dup(1);
+        if(next_fd<0) {
+            fprintf(stderr, "Cannot determine max file descriptors\n");
+            exit(1);
+        }
+        max_fds = settings.maxconns + headroom + next_fd;
+        
         fprintf(stderr, "Failed to query maximum file descriptor; "
                         "falling back to maxconns\n");
+        close(next_fd);
     }
-
-    close(next_fd);
 
     if ((conns = calloc(max_fds, sizeof(conn *))) == NULL) {
         fprintf(stderr, "Failed to allocate connection structures\n");
@@ -485,7 +488,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     STATS_UNLOCK();
 
     MEMCACHED_CONN_ALLOCATE(c->sfd);
-
+    printf("CONN NEW DONE (event added)\n");
     return c;
 }
 
@@ -3985,7 +3988,7 @@ static enum transmit_result transmit(conn *c) {
     if (c->msgcurr < c->msgused) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
-
+         
         res = sendmsg(c->sfd, m, 0);
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
@@ -4052,13 +4055,15 @@ static void drive_machine(conn *c) {
 
         switch(c->state) {
         case conn_listening:
-            //            printf("CONN LIstening %lx con %p\n", (long)pthread_self(), (void*)c);
+            printf("CONN LIstening %lx con %p\n", (long)pthread_self(), (void*)c);
             addrlen = sizeof(addr);
 #ifdef HAVE_ACCEPT4
             if (use_accept4) {
                 sfd = accept4(c->sfd, (struct sockaddr *)&addr, &addrlen, SOCK_NONBLOCK);
+                printf("ACCEPTED4 NEW CON fd %d threadid %lx\n", sfd, pthread_self());
             } else {
                 sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen);
+                printf("ACCEPTED NEW CON fd %d\n", sfd);
             }
 #else
             sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen);
@@ -4598,7 +4603,7 @@ static int server_socket(const char *interface,
     }
 
     freeaddrinfo(ai);
-
+    printf("usccess starting up cons %d\n", success);
     /* Return zero iff we detected no errors in starting up connections */
     return success == 0;
 }
@@ -5717,6 +5722,7 @@ int main (int argc, char **argv) {
      * is only an advisory.
      */
     usleep(1000);
+    
     if (stats.curr_conns + stats.reserved_fds >= settings.maxconns - 1) {
         fprintf(stderr, "Maxconns setting is too low, use -c to increase.\n");
         exit(EXIT_FAILURE);
@@ -5727,10 +5733,11 @@ int main (int argc, char **argv) {
     }
 
     /* Drop privileges no longer needed */
-    drop_privileges();
+    //drop_privileges();
 
     /* enter the event loop */
     if (event_base_loop(main_base, 0) != 0) {
+        printf("exit failure\n");
         retval = EXIT_FAILURE;
     }
 
