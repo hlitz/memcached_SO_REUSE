@@ -488,7 +488,7 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     STATS_UNLOCK();
 
     MEMCACHED_CONN_ALLOCATE(c->sfd);
-    printf("CONN NEW DONE (event added)\n");
+    
     return c;
 }
 
@@ -4055,15 +4055,13 @@ static void drive_machine(conn *c) {
 
         switch(c->state) {
         case conn_listening:
-            printf("CONN LIstening %lx con %p\n", (long)pthread_self(), (void*)c);
+            
             addrlen = sizeof(addr);
 #ifdef HAVE_ACCEPT4
             if (use_accept4) {
                 sfd = accept4(c->sfd, (struct sockaddr *)&addr, &addrlen, SOCK_NONBLOCK);
-                printf("ACCEPTED4 NEW CON fd %d threadid %lx\n", sfd, pthread_self());
             } else {
                 sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen);
-                printf("ACCEPTED NEW CON fd %d\n", sfd);
             }
 #else
             sfd = accept(c->sfd, (struct sockaddr *)&addr, &addrlen);
@@ -4603,7 +4601,6 @@ static int server_socket(const char *interface,
     }
 
     freeaddrinfo(ai);
-    printf("usccess starting up cons %d\n", success);
     /* Return zero iff we detected no errors in starting up connections */
     return success == 0;
 }

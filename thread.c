@@ -377,7 +377,7 @@ static void *worker_libevent(void *arg) {
     setup_thread(me);
 
     my_tid = me->thread_id;
-    printf("--------INIT THREAD new my tid %x self %lx thread obj %p\n", my_tid, (long)pthread_self(), (void*)me);
+    
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
      */
@@ -509,7 +509,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
     LIBEVENT_THREAD *thread = threads + tid;
 
     last_thread = tid;
-    printf("dispatch conn new fd %d\n", sfd);
+
     item->sfd = sfd;
     item->init_state = init_state;
     item->event_flags = event_flags;
