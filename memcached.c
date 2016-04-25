@@ -247,6 +247,7 @@ static void settings_init(void) {
     settings.tail_repair_time = TAIL_REPAIR_TIME_DEFAULT;
     settings.flush_enabled = true;
     settings.crawls_persleep = 1000;
+    settings.loose_root_priv = true;
 }
 
 /*
@@ -5177,6 +5178,7 @@ int main (int argc, char **argv) {
           "S"   /* Sasl ON */
           "F"   /* Disable flush_all */
           "o:"  /* Extended generic options */
+          "x"   /* Do not loose root priviledge*/
         ))) {
         switch (c) {
         case 'A':
@@ -5485,6 +5487,10 @@ int main (int argc, char **argv) {
 
             }
             break;
+        case 'x':
+            settings.loose_root_priv = false;
+            break;
+
         default:
             fprintf(stderr, "Illegal argument \"%c\"\n", c);
             return 1;
@@ -5572,7 +5578,7 @@ int main (int argc, char **argv) {
     }
 
     /* lose root privileges if we have them */
-    if (getuid() == 0 || geteuid() == 0) {
+    if (settings.loose_root_priv && (getuid() == 0 || geteuid() == 0)) {
         if (username == 0 || *username == '\0') {
             fprintf(stderr, "can't run as root without the -u switch\n");
             exit(EX_USAGE);

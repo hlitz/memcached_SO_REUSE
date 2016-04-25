@@ -337,6 +337,7 @@ struct settings {
     int warm_lru_pct; /* percentage of slab space for WARM_LRU */
     int crawls_persleep; /* Number of LRU crawls to run before sleeping */
     bool expirezero_does_not_evict; /* exptime == 0 goes into NOEXP_LRU */
+    bool loose_root_priv; /*loose root priv for improved security */
 };
 
 extern struct stats stats;
